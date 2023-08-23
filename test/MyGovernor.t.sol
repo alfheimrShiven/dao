@@ -7,6 +7,7 @@ import {Box} from "../src/Box.sol";
 import {GovToken} from "../src/GovToken.sol";
 import {MyGovernor} from "../src/MyGovernor.sol";
 import {TimeLock} from "../src/TimeLock.sol";
+import {console} from "forge-std/console.sol";
 
 contract MyGovernorTest is Test {
     GovToken govToken;
@@ -17,9 +18,15 @@ contract MyGovernorTest is Test {
     address public USER = makeAddr("user");
     uint256 public constant INITIAL_SUPPLY = 100 ether;
     uint256 public constant MIN_DELAY = 3600; // 1 HOUR delay after proposal passed
+    uint256 public constant VOTING_DELAY = 7200; // 1 BLOCK
+    uint256 public constant VOTING_PERIOD = 50400; // This is how long voting lasts
+
     // empty address array will means all participants are proposers / executers
     address[] proposers;
     address[] executors;
+    address[] targets; // contract to call
+    uint256[] values;
+    bytes[] calldatas; // which function to call
 
     function setUp() public {
         govToken = new GovToken();
@@ -48,5 +55,68 @@ contract MyGovernorTest is Test {
     function testUpdateBoxWithoutGovernance() external {
         vm.expectRevert();
         box.storeNumber(1);
+    }
+
+    function testGovernorUpdatesBox() external {
+        uint256 valueToStore = 888;
+        bytes memory encodedFunctionCall = abi.encodeWithSignature(
+            "storeNumber(uint256)",
+            valueToStore
+        );
+        string memory description = "Store 1 in Box";
+
+        // Step 1: Propose to Governor
+        // preparing params
+        targets.push(address(box));
+        values.push(0);
+        calldatas.push(encodedFunctionCall);
+
+        // making the proposal call
+        uint256 proposalId = governor.propose(
+            targets,
+            values,
+            calldatas,
+            description
+        );
+
+        // View the state
+        console.log(
+            "Proposal initial state",
+            uint256(governor.state(proposalId))
+        );
+
+        // Step 2: Waiting for VOTING_DELAY to pass
+        // pushing block state beyond VOTING_DELAY
+        vm.warp(block.timestamp + VOTING_DELAY + 1);
+        vm.roll(block.number + VOTING_DELAY + 1); // 1 BLOCK was the min delay in the Governor contract
+
+        console.log(
+            "Proposal's after delay state",
+            uint256(governor.state(proposalId))
+        );
+
+        // Step 3: Now we can vote
+        string memory reason = "cuz I am supportive!";
+        uint8 voteWay = 1; // voting yes
+        vm.prank(USER);
+        governor.castVoteWithReason(proposalId, voteWay, reason);
+
+        // waiting for the voting period to pass
+        vm.warp(block.timestamp + VOTING_PERIOD + 1);
+        vm.roll(block.number + VOTING_PERIOD + 1);
+
+        // Step 4: Queue the proposal with MIN_DELAY
+        bytes32 descriptionHash = keccak256(abi.encodePacked(description));
+        governor.queue(targets, values, calldatas, descriptionHash);
+
+        vm.warp(block.timestamp + MIN_DELAY + 1);
+        vm.roll(block.number + MIN_DELAY + 1);
+
+        // Step 5: Execute
+        governor.execute(targets, values, calldatas, descriptionHash);
+        console.log("Changed Box Value: ", box.getNumber());
+
+        // Finally assert
+        assert(box.getNumber() == valueToStore);
     }
 }
