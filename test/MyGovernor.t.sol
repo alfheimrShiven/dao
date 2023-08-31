@@ -67,9 +67,9 @@ contract MyGovernorTest is Test {
 
         // Step 1: Propose to Governor
         // preparing params
-        targets.push(address(box));
+        targets.push(address(box)); // target contract
         values.push(0);
-        calldatas.push(encodedFunctionCall);
+        calldatas.push(encodedFunctionCall); // function to call with parameter
 
         // making the proposal call
         uint256 proposalId = governor.propose(
@@ -105,7 +105,7 @@ contract MyGovernorTest is Test {
         vm.warp(block.timestamp + VOTING_PERIOD + 1);
         vm.roll(block.number + VOTING_PERIOD + 1);
 
-        // Step 4: Queue the proposal with MIN_DELAY
+        // Step 4: Queue the proposal with MIN_DELAY. Queuing is done to allow participants who are against the proposal to exit the DAO, if they chose to.
         bytes32 descriptionHash = keccak256(abi.encodePacked(description));
         governor.queue(targets, values, calldatas, descriptionHash);
 
